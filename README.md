@@ -9,6 +9,8 @@ Will expand on README.md eventually with instructions on how to run (e.g. docker
 
 Implement ETL data pipeline with Kafka and PySpark. Will store data in local mongodb. Probably with both real-time and batch (lambda architecture).
 
+Using direct approach for this, rather than consumer-based approach.
+
 Eventually implement cloud computing (likely databricks) within the project. Will run together with MongoDB.
 
 Note: databricks lakehouse-architecture (both data lake and warehouse.)

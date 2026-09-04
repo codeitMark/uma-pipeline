@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /CS4010
+WORKDIR /uma-pipeline
 
 # --no-cache-dir is also part of best practice (Docker Docs). Reduces image size. 
 COPY requirements.txt .

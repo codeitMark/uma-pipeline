@@ -33,3 +33,19 @@ CLUB_SCHEMA = {
     "club_rank": 0
 } #club_rank 11 is SS, 10 is S+, 9 is S, etc.
 
+# sanitizing club data to stream only required fields above, and fill missing fields with default values
+def sanitize_json(raw_json, schema):
+    # Checks if the input is a json object (dict)
+    # If it is not, returns a new dict with default values from the schema
+    if not isinstance(raw_json, dict):
+        return {key: default for key, default in schema.items()}
+
+    sanitized_data = {}
+
+    for key, def_val in schema.items():
+        val = raw.json.get(key, val)
+
+        sanitized_data[key] = def_val if val is None or val == "" else val
+
+    return sanitized_data
+

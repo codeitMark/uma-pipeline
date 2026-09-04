@@ -34,7 +34,7 @@ CLUB_SCHEMA = {
     "club_rank": 0
 } #club_rank 11 is SS, 10 is S+, 9 is S, etc.
 
-# sanitizing club data to stream only required fields above, and fill missing fields with default values
+# A helper function for sanitizing club data to stream only required fields above, and fill missing fields with default values
 def sanitize_json(raw_json, schema):
     # Checks if the input is a json object (dict)
     # If it is not, returns a new dict with default values from the schema
@@ -76,14 +76,16 @@ def uma_top_clubs():
             sanitized_club = sanitize_json(club, CLUB_SCHEMA)
             sanitized_club["ingested_at"] = time.time()  # Add ingestion timestamp
 
-            producer.send('top_clubs', value=sanitized_club)
+            producer.send(TOPIC, value=sanitized_club)
             sent_count += 1
 
             if sent_count % 1000 == 0:
                 print(f"Sent {sent_count} club records to Kafka.")
-                
+
         producer.flush()
         print("Clubs data sent to Kafka successfully.")
 
     else:
         print(f"Failed to fetch top clubs: {response.status_code} - {response.text}")
+
+uma_top_clubs()

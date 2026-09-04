@@ -1,6 +1,8 @@
 services:
   python:
     build: .
+    env_file:
+      - .env
     volumes:
       - .:/uma-pipeline
     tty: true # Keeps container alive on standby     

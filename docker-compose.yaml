@@ -2,7 +2,7 @@ services:
   python:
     build: .
     volumes:
-      - .:/CS4010
+      - .:/uma-pipeline
     tty: true # Keeps container alive on standby     
     stdin_open: true # Lets us use the container terminal interactively
     environment:

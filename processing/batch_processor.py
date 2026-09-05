@@ -58,43 +58,37 @@ kafka_df = spark.read \
     .option("startingOffsets", "earliest") \
     .load()
 
-if max_ts is not None:
+if latest_ts is not None:
     kafka_df = kafka_df.filter(col("timestamp") > latest_ts) # if timestamp is greater than latest timestamp, then we are good to go! (no duplicate of same time)
 
-# Cast the binary payload to string, and parse with club_schema. then add a timestamp for when the data was processed. This will help with tracking and debugging.
-parsed_df = kafka_df \
+transformed_df = (
+    kafka_df
+
+    # Cast the binary payload to string, and parse with club_schema. then add a timestamp for when the data was processed. This will help with tracking and debugging.
     .select(
         from_json(col("value").cast("string"), club_schema).alias("data"), # value is the actual json body. cast it into string, then parse it with club_schema. data is the parsed json object.
         col("timestamp").alias("kafka_published_at"),
         current_timestamp().alias("spark_processed_at")
-    ) \
+    )
     .select("data.*", "kafka_published_at", "spark_processed_at") # data.* to expand the json body into individual dataframe columns, as well as add columns for kafka_published_at and spark_processed_at.
+
+    # Handling null values and removing rows we don't need. Need to handle potential null values so they don't mess up potential calcs in PowerBI.
+    .drop("live_points", "live_rank", "last_live_update") # Drop the live points and rank columns, not for historical data or batch processing. using later for real-time streaming
+    .filter(col("circle_id").isNotNull()) # Handling missing data and NULL values. Fills with default values
+    .withColumn("member_count", coalesce(col("member_count"), lit(0)))  # if member_count is null, fill with 0
+    .withColumn("monthly_point", coalesce(col("monthly_point"), lit(0)))
+    .withColumn("last_month_point", coalesce(col("last_month_point"), lit(0)))
+
+    # Transforming some data within the batch (Mostly ones involving static values. Calculations involving dynamic values (e.g. avg_fans_per_member) is done through PowerBI and DAX.)
+    # .withColumn("avg_fans_per_member", when(col("member_count") > 0, col("monthly_point") / col("member_count")).otherwise(0.0))
+    # .withColumn("avg_fans_per_member_last_month", when(col("member_count") > 0, col("last_month_point") / col("member_count")).otherwise(0.0)) requires me to fetch member_count for last month too from another GET call. Better to do in DAX in PowerBI (better for multi-source data, and historical data. using pyspark for single-batch processing.)
+    .withColumn("is_full", col("member_count") >= 30) # Sometimes member_count is above 30, due to counting members who have left the same month.
+    .withColumn("point_difference_last_month", when((col("monthly_point") > 0) & (col("last_month_point") > 0), col("monthly_point") - col("last_month_point")).otherwise(None)) # Using when to handle null values
+    .withColumn("rank_difference_last_month", when((col("monthly_rank").isNotNull()) & (col("last_month_rank").isNotNull()), col("monthly_rank") - col("last_month_rank")).otherwise(None))
     
-# Drop the live points and rank columns, not for historical data or batch processing. using later for real-time streaming
-# .filter(col("circle_id").isNotNull()) is handling missing data and NULL values. Fills with default values
-# coalesce and lit(0): if member_count is null, fill with 0
-non_null_df = parsed_df \
-        .drop("live_points", "live_rank", "last_live_update") \
-        .filter(col("circle_id").isNotNull()) \
-        .withColumn("member_count", coalesce(col("member_count"), lit(0))) \
-        .withColumn("monthly_point", coalesce(col("monthly_point"), lit(0))) \
-        .withColumn("last_month_point", coalesce(col("last_month_point"), lit(0)))
-    
-# Using when to handle null values below
-# Sometimes member_count is above 30, due to counting members who have left the same month.
-# .withColumn("avg_fans_per_member_last_month", when(col("member_count") > 0, col("last_month_point") / col("member_count")).otherwise(0.0)) requires me to fetch member_count for last month too from another GET call. Better to do in DAX in PowerBI (better for multi-source data, and historical data. using pyspark for single-batch processing.)
-
-transformed_df = non_null_df \
-        .withColumn("avg_fans_per_member", when(col("member_count") > 0, col("monthly_point") / col("member_count")).otherwise(0.0)) \
-        .withColumn("is_full", col("member_count") >= 30) \
-        .withColumn("point_difference_last_month", when((col("monthly_point") > 0) & (col("last_month_point") > 0), col("monthly_point") - col("last_month_point")).otherwise(None)) \ #negatives?
-        .withColumn("rank_difference_last_month", when((col("monthly_rank").isNotNull()) & (col("last_month_rank").isNotNull()), col("monthly_rank") - col("last_month_rank")).otherwise(None))
-
-
-# For if producer pushed duplicate data
-final_batch_df = transformed_df.dropDuplicates(["circle_id", "kafka_published_at"]) # should help with idempotency and avoiding duplicate data.
-
-# So many dfs. I should write it all together in one df! Refactor now, to avoid technical debt.
+    # should help with idempotency and avoiding duplicate data (within the same batch)
+    .dropDuplicates(["circle_id", "kafka_published_at"])
+)
 
 # Not using upsert to keep historical data.
 final_batch_df \

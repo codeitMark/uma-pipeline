@@ -52,7 +52,7 @@ parsed_df = kafka_df.select \
     ) \
     .select("data.*", "kafka_published_at", "spark_processed_at") # data.* to expand the json body into individual dataframe columns.
     
-batch_df = parsed.df.drop("live_points", "live_rank", "last_live_update") # drop the live points and rank columns, not for historical data or batch processing. using later for real-time streaming
+batch_df = parsed_df.drop("live_points", "live_rank", "last_live_update") # drop the live points and rank columns, not for historical data or batch processing. using later for real-time streaming
 
 # For if producer pushed duplicate data
 final_batch_df = batch_df.dropDuplicates(["circle_id", "kafka_published_at"]) # should help with idempotency and avoiding duplicate data.

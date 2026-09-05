@@ -18,7 +18,7 @@ HEADERS = {
 
 # Defining expected Schema to address null or empty values
 CLUB_SCHEMA = {
-    "circle_id": None,
+    "circle_id": 0,
     "name": "Unknown",
     "comment": "No comment",
     "member_count": 0,
@@ -43,7 +43,7 @@ def sanitize_json(raw_json, schema):
 
     sanitized_data = {}
 
-    for key, def_val in schema.items():
+    for key, def_val in schema.items(): #uses only the items in schema, removes any extra fields that aren't in the schema.
         val = raw_json.get(key, def_val)
 
         sanitized_data[key] = def_val if val is None or val == "" else val

@@ -25,6 +25,8 @@ spark = (
     .getOrCreate()
 )
 
+#def process_club_data():
+
 spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable. Seems to be getting ignored though.
 
 # fetches the latest kafka_published_at timestamp in MongoDB, to avoid appending duplicates (assuming same timestamp. Otherwise yes to 'duplicate', as historical data.)
@@ -83,7 +85,7 @@ processed_df = (
     .withColumn("rank_difference_last_month", when((col("monthly_rank").isNotNull()) & (col("last_month_rank").isNotNull()), col("monthly_rank") - col("last_month_rank")).otherwise(None))
     
     # should help with idempotency and avoiding duplicate data (within the same batch)
-    .dropDuplicates(["circle_id", "kafka_published_at"])
+    .dropDuplicates(["circle_id", "date_updated"])
 )
 
 # Performing left anti-join against MongoDB records
@@ -106,5 +108,7 @@ unwritten_clubs_df.write \
     .option("database", DATABASE) \
     .option("collection", DB_COLLECTION) \
     .save()
+
+print("Written collection into mongodb.") # Should probably add an if-else block that checks if unwritte_clubs_df is empty above. if its not null do all this, if it is, just print("Dataframes is empty; likely already in MongoDB.")
 
 # Need to automize this somehow to launch daily eventually.

@@ -5,19 +5,24 @@ from pyspark.sql import Row
 from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date
 from pyspark.sql.functions import max as _max
     
-SPARK_MASTER = os.getenv("SPARK_MASTER", "spark://spark-master:7077")
 MONGO_SERVER = os.getenv("MONGO_SERVER", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
 
 DATABASE = "uma_db"
 DB_COLLECTION = "historical_club_stats"
 
 # Specifies the MongoDB Spark connector version below.
-spark = SparkSession.builder \
-    .master(SPARK_MASTER) \
-    .appName("UmaMoeBatchProcessor") \
-    .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.13:11.1.0") \
-    .config("spark.mongodb.write.connection.uri", MONGO_SERVER) \
+spark = (
+    SparkSession.builder # no .master, it is specified when running the program with the --master flag.
+    .appName("UmaMoeBatchProcessor")
+    .config(
+        "spark.jars.packages", 
+        "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0," # Running spark 4.2.0. ',' is inside as they both are being sent together (not as 3 arguments! only 2)
+        "org.mongodb.spark:mongo-spark-connector_2.13:11.1.0"
+    )
+    .config("spark.mongodb.read.connection.uri", MONGO_SERVER)
+    .config("spark.mongodb.write.connection.uri", MONGO_SERVER)
     .getOrCreate()
+)
 
 spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable.
 
@@ -56,7 +61,7 @@ club_schema = StructType([
 kafka_df = spark.read \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka:9092") \
-    .option("subscribe", "uma_top_clubs") \ 
+    .option("subscribe", "uma_top_clubs") \
     .option("startingOffsets", "earliest") \
     .load()
 

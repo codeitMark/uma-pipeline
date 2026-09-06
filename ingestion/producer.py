@@ -20,10 +20,10 @@ HEADERS = {
 CLUB_SCHEMA = {
     "circle_id": 0,
     "name": "Unknown",
-    "comment": "No comment",
     "member_count": 0,
+    "join_style": 0,
     "created_at": "1970-01-01T00:00:00Z",
-    "updated_at": "1970-01-01T00:00:00Z",
+    "last_updated": "1970-01-01T00:00:00Z",
     "monthly_rank": 0,
     "monthly_point": 0,
     "last_month_rank": 0,
@@ -55,7 +55,7 @@ def uma_top_clubs():
     TOPIC = "uma_top_clubs"
 
     #Can be changed dynamically here if you wish.
-    limit = 10000
+    limit = 10
     sort_by = "monthly_rank"
     sort_dir = "desc"
 

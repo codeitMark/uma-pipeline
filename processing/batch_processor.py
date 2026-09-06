@@ -1,11 +1,11 @@
 import os
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, IntegerType, StringType, BooleanType, FloatType
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType, LongType
 from pyspark.sql import Row
 from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date
 from pyspark.sql.functions import max as _max
     
-MONGO_SERVER = os.getenv("MONGO_SERVER", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
+MONGO_SERVER = os.getenv("MONGO_URI", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
 
 DATABASE = "uma_db"
 DB_COLLECTION = "historical_club_stats"
@@ -24,7 +24,7 @@ spark = (
     .getOrCreate()
 )
 
-spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable.
+spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable. Seems to be getting ignored though.
 
 # fetches the latest kafka_published_at timestamp in MongoDB, to avoid appending duplicates (assuming same timestamp. Otherwise yes to 'duplicate', as historical data.)
 try:
@@ -34,11 +34,12 @@ try:
         .option("database", DATABASE)
         .option("collection", DB_COLLECTION)
         .load()
-        .select("circle_id", "date_updated")
+        #.select("circle_id", "date_updated") # causes UNRESOVED_COLUMN if empty
     )
     #latest_ts = existing_mongo_df.select(_max("kafka_published_at")).collect()[0][0] # collect returns a list, we enter that list to get the row, then we enter the row to get the datetime (second [0])
 except Exception:
-    existing_mongo_df = None # Empty collection
+    print("MongoDB read failed")
+    existing_mongo_df = None # Failed to read
     #latest_ts = None
 
 club_schema = StructType([
@@ -49,10 +50,10 @@ club_schema = StructType([
     StructField("created_at", StringType(), True),
     StructField("last_updated", StringType(), True),
     StructField("monthly_rank", IntegerType(), True), # Not sure how uma.moe handles new clubs, as they are unranked during their 1st month. They seem to still be ranking them though.
-    StructField("monthly_point", IntegerType(), True),
+    StructField("monthly_point", LongType(), True),
     StructField("last_month_rank", IntegerType(), True),
-    StructField("last_month_point", IntegerType(), True),
-    StructField("live_points", IntegerType(), True),
+    StructField("last_month_point", LongType(), True),
+    StructField("live_points", LongType(), True),
     StructField("live_rank", IntegerType(), True),
     StructField("last_live_update", StringType(), True),
     StructField("club_rank", IntegerType(), True)
@@ -102,13 +103,16 @@ processed_df = (
 )
 
 # Performing left anti-join against MongoDB records
-if existing_mongo_df is not None:
+if (existing_mongo_df is not None and "circle_id" in existing_mongo_df.columns and "date_updated" in existing_mongo_df.columns):
+    existing_keys = existing_mongo_df.select("circle_id", "date_updated").distinct() # distinct to limit the comparisons the database does, as circle_id and date_updated are meant to be the primary key together.
+
     unwritten_clubs_df = processed_df.join(
         existing_mongo_df, # right side of join
         on=["circle_id", "date_updated"], # columns its using to join
         how="left_anti" # any columns that didnt join (arent appended today in the database)
     )
 else:
+    # Empty collection
     unwritten_clubs_df = processed_df
 
 # Not using upsert to keep historical data.

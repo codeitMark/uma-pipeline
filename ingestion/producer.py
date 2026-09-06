@@ -34,6 +34,21 @@ CLUB_SCHEMA = {
     "club_rank": 0
 } #club_rank 11 is SS, 10 is S+, 9 is S, etc.
 
+THRESHOLD_SCHEMA = {
+    "rank_index": 0, #club_rank from CLUB_SCHEMA is rank_index here.
+    "name": "Unknown",
+    "ranking_from": 0,
+    "ranking_to": 0,
+    "current_min_fans": 0,
+    "current_fans_per_day": 0,
+    "yesterday_min_fans": 0,
+    "yesterday_fans_per_day": 0,
+    "daily_fans_delta": 0,
+    "last_month_min_fans": 0,
+    "last_month_fans_per_day": 0,
+    "current_vs_last_month_delta": 0
+}
+
 # A helper function for sanitizing club data to stream only required fields above, and fill missing fields with default values
 def sanitize_json(raw_json, schema):
     # Checks if the input is a json object (dict)
@@ -59,31 +74,43 @@ def uma_top_clubs():
     sort_by = "monthly_rank"
     sort_dir = "desc"
 
-    url = f"https://uma.moe/api/v4/circles/list?page=0&limit={limit}&sort_by={sort_by}&sort_dir={sort_dir}"
+    club_url = f"https://uma.moe/api/v4/circles/list?page=0&limit={limit}&sort_by={sort_by}&sort_dir={sort_dir}"
 
-    response = requests.get(url, headers=HEADERS)
+    response = requests.get(club_url, headers=HEADERS)
 
+    response_check(response, "circles", CLUB_SCHEMA, TOPIC)
+
+def rank_thresholds():
+    TOPIC = "rank_thresholds"
+
+    thresholds_url = "https://uma.moe/api/v4/circles/rank-thresholds"
+
+    response = requests.get(thresholds_url, headers=HEADERS)
+
+    response_check(response, "thresholds", THRESHOLD_SCHEMA, TOPIC)
+
+def response_check(response, data_key, SCHEMA, TOPIC):
     if response.status_code == 200:
-        clubs_data = response.json()
-        circles = clubs_data.get("circles", []) # [] for default if "Circles" key is missing
+        data = response.json()
+        data_vals = data.get(data_key, []) # [] for default if "Circles" key is missing
         
-        if not circles:
-            print("Uma.moe API returned no club records.")
+        if not data_vals:
+            print("Uma.moe API returned no records.")
             return
 
         sent_count = 0 # For printing how many records has been sent under the process
-        for club in circles:
-            sanitized_club = sanitize_json(club, CLUB_SCHEMA)
+        for obj in data_vals: #e.g. club in circles
+            sanitized_club = sanitize_json(obj, SCHEMA)
             sanitized_club["ingested_at"] = time.time()  # Add ingestion timestamp
 
             producer.send(TOPIC, value=sanitized_club)
             sent_count += 1
 
-            if sent_count % 1000 == 0:
-                print(f"Sent {sent_count} club records to Kafka.")
+            if sent_count % 100 == 0:
+                print(f"Sent {sent_count} records to Kafka.")
 
         producer.flush()
-        print("Clubs data sent to Kafka successfully.")
+        print("Data sent to Kafka successfully.")
 
     else:
         print(f"Failed to fetch top clubs: {response.status_code} - {response.text}")

@@ -89,7 +89,7 @@ def unwritten_clubs(existing_mongo_df, processed_df):
     
     return unwritten_clubs_df
 
-def fuck(spark):
+def process_club_data(spark):
     DB_COLLECTION = "historical_club_stats"
     existing_mongo_df = read_existing_db(DB_COLLECTION)
 
@@ -141,4 +141,4 @@ def write_to_mongodb(unwritten_clubs_df):
 
 # Need to automize this somehow to launch daily eventually.
 
-fuck(spark)
+process_club_data(spark)

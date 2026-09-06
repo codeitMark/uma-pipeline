@@ -1,4 +1,5 @@
 import os
+import argparse
 from pyspark.sql import SparkSession
 from pyspark.sql import Row
 from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format
@@ -12,24 +13,8 @@ DATABASE = "uma_db"
 CLUBS_TOPIC = "uma_top_clubs"
 RANKS_TOPIC = "rank_thresholds"
 
-# Specifies the MongoDB Spark connector version below.
-spark = (
-    SparkSession.builder # no .master, it is specified when running the program with the --master flag.
-    .appName("UmaMoeBatchProcessor")
-    .config(
-        "spark.jars.packages", 
-        "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0," # Running spark 4.2.0. ',' is inside as they both are being sent together (not as 3 arguments! only 2)
-        "org.mongodb.spark:mongo-spark-connector_2.13:11.1.0" # Not necessary as they are specified in flags during launch, because this gets ignored for some reason.
-    )
-    .config("spark.mongodb.read.connection.uri", MONGO_SERVER)
-    .config("spark.mongodb.write.connection.uri", MONGO_SERVER)
-    .getOrCreate()
-)
-
-spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable. Seems to be getting ignored though.
-
 # fetches the latest kafka_published_at timestamp in MongoDB, to avoid appending duplicates (assuming same timestamp. Otherwise yes to 'duplicate', as historical data.)
-def read_existing_db(db_collection):
+def read_existing_db(spark, db_collection):
     try:
         existing_mongo_df = (
             spark.read
@@ -41,11 +26,9 @@ def read_existing_db(db_collection):
         )
         #latest_ts = existing_mongo_df.select(_max("kafka_published_at")).collect()[0][0] # collect returns a list, we enter that list to get the row, then we enter the row to get the datetime (second [0])
         return existing_mongo_df
-    except Exception:
-        print("MongoDB read failed")
-        existing_mongo_df = None # Failed to read
-        #latest_ts = None
-        return existing_mongo_df
+    except Exception as e:
+        print(f"MongoDB read failed: {e}")
+        return None
 
 def read_kafka_topic(spark, topic):
     kafka_df = spark.read \
@@ -89,9 +72,22 @@ def unwritten_clubs(existing_mongo_df, processed_df):
     
     return unwritten_clubs_df
 
+def write_to_mongodb(unwritten_clubs_df, db_collection):
+    # Not using upsert to keep historical data.
+    if unwritten_clubs_df.rdd.isEmpty():
+        print("Dataframes is empty, records are likely already in MongoDB.")
+    else:
+        unwritten_clubs_df.write \
+            .format("mongodb") \
+            .mode("append") \
+            .option("database", DATABASE) \
+            .option("collection", db_collection) \
+            .save()
+        print("Written collection/records into mongodb.")
+
 def process_club_data(spark):
-    DB_COLLECTION = "historical_club_stats"
-    existing_mongo_df = read_existing_db(DB_COLLECTION)
+    db_collection = "historical_club_stats"
+    existing_mongo_df = read_existing_db(spark, db_collection)
 
     kafka_df = read_kafka_topic(spark, CLUBS_TOPIC)
 
@@ -123,22 +119,49 @@ def process_club_data(spark):
 
     unwritten_clubs_df = unwritten_clubs(existing_mongo_df, processed_df)
 
-    write_to_mongodb(unwritten_clubs_df)
+    write_to_mongodb(unwritten_clubs_df, db_collection)
 
-def write_to_mongodb(unwritten_clubs_df):
-    # Not using upsert to keep historical data.
-    if unwritten_clubs_df.rdd.isEmpty():
-        print("Dataframes is empty, records are likely already in MongoDB.")
-    else:
-        unwritten_clubs_df.write \
-            .format("mongodb") \
-            .mode("append") \
-            .option("database", DATABASE) \
-            .option("collection", DB_COLLECTION) \
-            .save()
-        
-        print("Written collection into mongodb.")
+
+#def process_rank_thresholds(spark):
+
+def main():
+    parser = argparse.ArgumentParser(description="PySpark batch processor, from Kafka to MongoDB ETL")
+    parser.add_argument(
+        "--target", 
+        choices=["clubs", "thresholds", "all"], 
+        required=True, 
+        help="Use flag --target <data>. data being which pipeline producer. Options are clubs, thresholds, and all."
+    )
+    
+    args = parser.parse_args()
+
+    # Specifies the MongoDB Spark connector version below.
+    spark = (
+        SparkSession.builder # no .master, it is specified when running the program with the --master flag.
+        .appName("UmaMoeBatchProcessor")
+        .config(
+            "spark.jars.packages", 
+            "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0," # Running spark 4.2.0. ',' is inside as they both are being sent together (not as 3 arguments! only 2)
+            "org.mongodb.spark:mongo-spark-connector_2.13:11.1.0" # Not necessary as they are specified in flags during launch, because this gets ignored for some reason.
+        )
+        .config("spark.mongodb.read.connection.uri", MONGO_SERVER)
+        .config("spark.mongodb.write.connection.uri", MONGO_SERVER)
+        .getOrCreate()
+    )
+
+    spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable. Seems to be getting ignored though.
+
+    if args.target == "clubs":
+        process_club_data(spark)
+    elif args.target == "thresholds":
+        process_rank_thresholds(spark)
+    elif args.target == "all":
+        process_club_data(spark)
+        process_rank_thresholds(spark)
+
+    spark.stop()
+
+if __name__ == "__main__":
+    main()
 
 # Need to automize this somehow to launch daily eventually.
-
-process_club_data(spark)

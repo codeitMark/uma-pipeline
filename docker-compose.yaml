@@ -44,7 +44,7 @@ services:
   mongodb:
     image: mongo:8.0.29 # Latest stable release (long term). Always specify version numnber, latest can break this
     ports:
-      - "27017:27017"
+      - "27018:27017" # My local 27017 is already taken due to a local project (that did not involve docker).
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin} # For those using mongodb locally, please make sure to include these variables in your .env file, as well as a local link (in MONGO_URI).
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS:-supersecretpassword123} # Dummy values for if you don't have those variables (prevents crash)
@@ -61,6 +61,7 @@ services:
       - SPARK_NO_DAEMONIZE=true # Prevents the container from exiting (keeps it running on docker). Refer to Spark's github "spark.env.sh.template"
       - SPARK_HOME=/opt/spark
       - SPARK_SUBMIT_OPTS=-Divy.home=/tmp/.ivy2 #redirect apache ivy to write it's cache somewhere that exists (and not nonexistent)'
+      - MONGO_URI=${MONGO_SERVER}
     volumes:
       - .:/uma-pipeline
 
@@ -68,12 +69,13 @@ services:
     image: apache/spark:4.2.0
     command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
     depends_on:
-      - spark-master
+      spark-master: # If spark-master rebuilds, rebuilds spark-workers too. this way, they will connect everytime spark-master is rebuilt!
+        condition: service_started
+        restart: true
     environment:
       - SPARK_NO_DAEMONIZE=true
       - SPARK_WORKER_CORES=2 #2 CPU Cores
       - SPARK_WORKER_MEMORY=4g #4 GB Ram
-      - SPARK_MASTER="spark://spark-master:7077"
     deploy:
       replicas: 2
 

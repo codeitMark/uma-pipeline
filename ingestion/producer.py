@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import time
+import argparse
 from kafka import KafkaProducer
 
 KAFKASERVER = os.getenv("KAFKA_SERVERS", "localhost:9094")
@@ -115,4 +116,18 @@ def response_check(response, data_key, SCHEMA, TOPIC):
     else:
         print(f"Failed to fetch top clubs: {response.status_code} - {response.text}")
 
-uma_top_clubs()
+if __name__ == "__main__": # has to be launched directly and not through another script or python file
+    parser = argparse.ArgumentParser(description="Data pipeline producer to Kafka. Fetches json files from the uma.moe API.")
+    parser.add_argument(
+        "--target", 
+        choices=["clubs", "thresholds"], 
+        required=True, 
+        help="Use flag --target <data>. data being which pipeline producer, e.g. clubs or thresholds."
+    )
+    
+    args = parser.parse_args() # the argument input
+
+    if args.target == "clubs":
+        uma_top_clubs()
+    elif args.target == "thresholds":
+        rank_thresholds()

@@ -1,3 +1,5 @@
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType, LongType
+
 club_schema = StructType([
     StructField("circle_id", IntegerType(), False), # Not nullable (therefore False), primary key (along with timestamp) for the club data.
     StructField("name", StringType(), True),

@@ -1,6 +1,5 @@
 import os
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, IntegerType, StringType, LongType
 from pyspark.sql import Row
 from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format
 from pyspark.sql.functions import max as _max
@@ -25,8 +24,6 @@ spark = (
     .config("spark.mongodb.write.connection.uri", MONGO_SERVER)
     .getOrCreate()
 )
-
-def process_club_data():
 
 spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable. Seems to be getting ignored though.
 

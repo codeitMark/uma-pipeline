@@ -2,7 +2,7 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, BooleanType, FloatType
 from pyspark.sql import Row
-from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when
+from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date
 from pyspark.sql.functions import max as _max
     
 SPARK_MASTER = os.getenv("SPARK_MASTER", "spark://spark-master:7077")
@@ -29,18 +29,20 @@ try:
         .option("database", DATABASE)
         .option("collection", DB_COLLECTION)
         .load()
+        .select("circle_id", "date_updated")
     )
-    latest_ts = existing_mongo_df.select(_max("kafka_published_at")).collect()[0][0] # collect returns a list, we enter that list to get the row, then we enter the row to get the datetime (second [0])
+    #latest_ts = existing_mongo_df.select(_max("kafka_published_at")).collect()[0][0] # collect returns a list, we enter that list to get the row, then we enter the row to get the datetime (second [0])
 except Exception:
-    latest_ts = None # Empty collection
+    existing_mongo_df = None # Empty collection
+    #latest_ts = None
 
 club_schema = StructType([
     StructField("circle_id", IntegerType(), False), # Not nullable (therefore False), primary key (along with timestamp) for the club data.
     StructField("name", StringType(), True),
-    StructField("comment", StringType(), True),
     StructField("member_count", IntegerType(), True),
+    StructField("join_style", IntegerType(), True),
     StructField("created_at", StringType(), True),
-    StructField("updated_at", StringType(), True),
+    StructField("last_updated", StringType(), True),
     StructField("monthly_rank", IntegerType(), True), # Not sure how uma.moe handles new clubs, as they are unranked during their 1st month. They seem to still be ranking them though.
     StructField("monthly_point", IntegerType(), True),
     StructField("last_month_rank", IntegerType(), True),
@@ -54,14 +56,15 @@ club_schema = StructType([
 kafka_df = spark.read \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka:9092") \
-    .option("subscribe", "uma_top_clubs") \
+    .option("subscribe", "uma_top_clubs") \ 
     .option("startingOffsets", "earliest") \
     .load()
 
-if latest_ts is not None:
-    kafka_df = kafka_df.filter(col("timestamp") > latest_ts) # if timestamp is greater than latest timestamp, then we are good to go! (no duplicate of same time)
+# Outdated method, checks only latest timestamp and not club_id. if we were to add new clubs, it would not send anything to mongodb. latest_ts is commented out. Not best practice (could just look back in git), but whatever, just a personal note for later when I forget.
+#if latest_ts is not None:
+#    kafka_df = kafka_df.filter(col("timestamp") > latest_ts) # if timestamp is greater than latest timestamp, then we are good to go! (no duplicate of same time)
 
-transformed_df = (
+processed_df = (
     kafka_df
 
     # Cast the binary payload to string, and parse with club_schema. then add a timestamp for when the data was processed. This will help with tracking and debugging.
@@ -71,6 +74,9 @@ transformed_df = (
         current_timestamp().alias("spark_processed_at")
     )
     .select("data.*", "kafka_published_at", "spark_processed_at") # data.* to expand the json body into individual dataframe columns, as well as add columns for kafka_published_at and spark_processed_at.
+
+    # Get the date the API updated the club data. That way, can avoid (daily) duplicates. Considered using kafka_published_at, but if there's a delay then it won't be the correct date!
+    .withColumn("date_updated", to_date(col("last_updated")))
 
     # Handling null values and removing rows we don't need. Need to handle potential null values so they don't mess up potential calcs in PowerBI.
     .drop("live_points", "live_rank", "last_live_update") # Drop the live points and rank columns, not for historical data or batch processing. using later for real-time streaming
@@ -90,13 +96,22 @@ transformed_df = (
     .dropDuplicates(["circle_id", "kafka_published_at"])
 )
 
+# Performing left anti-join against MongoDB records
+if existing_mongo_df is not None:
+    unwritten_clubs_df = processed_df.join(
+        existing_mongo_df, # right side of join
+        on=["circle_id", "date_updated"], # columns its using to join
+        how="left_anti" # any columns that didnt join (arent appended today in the database)
+    )
+else:
+    unwritten_clubs_df = processed_df
+
 # Not using upsert to keep historical data.
-final_batch_df \
-    .write \
+unwritten_clubs_df.write \
     .format("mongodb") \
     .mode("append") \
     .option("database", DATABASE) \
     .option("collection", DB_COLLECTION) \
     .save()
 
-# Need to automize this somehow.
+# Need to automize this somehow to launch daily eventually.

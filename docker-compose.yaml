@@ -59,6 +59,10 @@ services:
       - "8080:8080" # Web Dashboard (http://localhost:8080)
     environment:
       - SPARK_NO_DAEMONIZE=true # Prevents the container from exiting (keeps it running on docker). Refer to Spark's github "spark.env.sh.template"
+      - SPARK_HOME=/opt/spark
+      - SPARK_SUBMIT_OPTS=-Divy.home=/tmp/.ivy2 #redirect apache ivy to write it's cache somewhere that exists (and not nonexistent)'
+    volumes:
+      - .:/uma-pipeline
 
   spark-worker:
     image: apache/spark:4.2.0
@@ -69,6 +73,7 @@ services:
       - SPARK_NO_DAEMONIZE=true
       - SPARK_WORKER_CORES=2 #2 CPU Cores
       - SPARK_WORKER_MEMORY=4g #4 GB Ram
+      - SPARK_MASTER="spark://spark-master:7077"
     deploy:
       replicas: 2
 

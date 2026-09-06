@@ -21,8 +21,9 @@ services:
     ports:
       - "9094:9092"
     volumes:
-      - kafka_data:/tmp/kraft-combined-logs
+      - kafka_data:/var/lib/kafka/data
     environment:
+      CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller # Combined mode, rather than running e.g. 3 brokers and 3 controllers.
       KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
@@ -37,6 +38,9 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      KAFKA_LOG_RETENTION_HOURS: 72
 
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0 # Will not need this when running locally. Default is good for a lot of machines running microservices on different servers.
       KAFKA_NUM_PARTITIONS: 3 # Load balancing for workers, let's them split the work. 3 for scalability, and not 2. e.g. worker 1 takes 1 and 3, while worker 2 takes 2. If we need more workers, the load balancing ends up better depending on the partitions. More is not always better too, only a little more than the available workers.

@@ -55,7 +55,7 @@ def uma_top_clubs():
     TOPIC = "uma_top_clubs"
 
     #Can be changed dynamically here if you wish.
-    limit = 10
+    limit = 100
     sort_by = "monthly_rank"
     sort_dir = "desc"
 

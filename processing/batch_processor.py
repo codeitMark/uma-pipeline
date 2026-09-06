@@ -2,7 +2,7 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, LongType
 from pyspark.sql import Row
-from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date
+from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format
 from pyspark.sql.functions import max as _max
     
 MONGO_SERVER = os.getenv("MONGO_URI", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
@@ -82,7 +82,7 @@ processed_df = (
     .select("data.*", "kafka_published_at", "spark_processed_at") # data.* to expand the json body into individual dataframe columns, as well as add columns for kafka_published_at and spark_processed_at.
 
     # Get the date the API updated the club data. That way, can avoid (daily) duplicates. Considered using kafka_published_at, but if there's a delay then it won't be the correct date!
-    .withColumn("date_updated", to_date(col("last_updated")))
+    .withColumn("date_updated", date_format(col("last_updated"), "yyyy-MM-dd")) # ISO-standard formatting. Saved as a string, to avoid time (since it is actually saving time (clock) as well)
 
     # Handling null values and removing rows we don't need. Need to handle potential null values so they don't mess up potential calcs in PowerBI.
     .drop("live_points", "live_rank", "last_live_update") # Drop the live points and rank columns, not for historical data or batch processing. using later for real-time streaming

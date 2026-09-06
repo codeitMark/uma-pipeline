@@ -4,11 +4,13 @@ from pyspark.sql.types import StructType, StructField, IntegerType, StringType, 
 from pyspark.sql import Row
 from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format
 from pyspark.sql.functions import max as _max
+from schemas import club_schema, threshold_schema
     
 MONGO_SERVER = os.getenv("MONGO_URI", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
 
 DATABASE = "uma_db"
-DB_COLLECTION = "historical_club_stats"
+
+DB_COLLECTION = "historical_club_stats" #Needs to be put in def functions
 
 # Specifies the MongoDB Spark connector version below.
 spark = (
@@ -17,12 +19,14 @@ spark = (
     .config(
         "spark.jars.packages", 
         "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0," # Running spark 4.2.0. ',' is inside as they both are being sent together (not as 3 arguments! only 2)
-        "org.mongodb.spark:mongo-spark-connector_2.13:11.1.0"
+        "org.mongodb.spark:mongo-spark-connector_2.13:11.1.0" # Not necessary as they are specified in flags during launch, because this gets ignored for some reason.
     )
     .config("spark.mongodb.read.connection.uri", MONGO_SERVER)
     .config("spark.mongodb.write.connection.uri", MONGO_SERVER)
     .getOrCreate()
 )
+
+def process_club_data():
 
 spark.sparkContext.setLogLevel("WARN") # Less information than default to logs, makes it more readable. Seems to be getting ignored though.
 
@@ -41,23 +45,6 @@ except Exception:
     print("MongoDB read failed")
     existing_mongo_df = None # Failed to read
     #latest_ts = None
-
-club_schema = StructType([
-    StructField("circle_id", IntegerType(), False), # Not nullable (therefore False), primary key (along with timestamp) for the club data.
-    StructField("name", StringType(), True),
-    StructField("member_count", IntegerType(), True),
-    StructField("join_style", IntegerType(), True),
-    StructField("created_at", StringType(), True),
-    StructField("last_updated", StringType(), True),
-    StructField("monthly_rank", IntegerType(), True), # Not sure how uma.moe handles new clubs, as they are unranked during their 1st month. They seem to still be ranking them though.
-    StructField("monthly_point", LongType(), True),
-    StructField("last_month_rank", IntegerType(), True),
-    StructField("last_month_point", LongType(), True),
-    StructField("live_points", LongType(), True),
-    StructField("live_rank", IntegerType(), True),
-    StructField("last_live_update", StringType(), True),
-    StructField("club_rank", IntegerType(), True)
-])
 
 kafka_df = spark.read \
     .format("kafka") \

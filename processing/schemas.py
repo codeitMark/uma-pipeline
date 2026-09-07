@@ -18,10 +18,10 @@ club_schema = StructType([
 ])
 
 threshold_schema = StructType([
-    StructField("rank_index", IntegerType(), True),
-    StructField("name", StringType(), True),
-    StructField("ranking_from", IntegerType(), True),
-    StructField("ranking_to", IntegerType(), True),
+    StructField("rank_index", IntegerType(), False),
+    StructField("name", StringType(), False),
+    StructField("ranking_from", IntegerType(), False),
+    StructField("ranking_to", IntegerType(), False),
     StructField("current_min_fans", LongType(), True),
     StructField("current_fans_per_day", LongType(), True),
     StructField("yesterday_min_fans", LongType(), True),

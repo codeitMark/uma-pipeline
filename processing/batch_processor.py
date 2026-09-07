@@ -2,10 +2,9 @@ import os
 import argparse
 from pyspark.sql import SparkSession
 from pyspark.sql import Row
-from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format
-from pyspark.sql.functions import max as _max
-from pyspark.sql.functions import round as spark_round
-from schemas import club_schema, threshold_schema
+from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format, explode, size, aggregate
+from pyspark.sql.functions import max as _max, round as spark_round, filter as _filter
+from schemas import club_schema, threshold_schema, member_schema
     
 MONGO_SERVER = os.getenv("MONGO_URI", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
 KAFKA_BOOTSTRAP = "kafka:9092"
@@ -13,6 +12,7 @@ DATABASE = "uma_db"
 
 CLUBS_TOPIC = "uma_top_clubs"
 THRESHOLDS_TOPIC = "rank_thresholds"
+MEMBERS_TOPIC = "club_members"
 
 # fetches the latest kafka_published_at timestamp in MongoDB, to avoid appending duplicates (assuming same timestamp. Otherwise yes to 'duplicate', as historical data.)
 def read_existing_db(spark, db_collection):
@@ -31,6 +31,7 @@ def read_existing_db(spark, db_collection):
         print(f"MongoDB read failed: {e}")
         return None
 
+# latest startingoffset or earliest
 def read_kafka_topic(spark, topic):
     kafka_df = spark.read \
         .format("kafka") \
@@ -73,6 +74,20 @@ def unwritten_club_records(existing_mongo_df, processed_df):
     
     return unwritten_clubs_df
 
+def unwritten_members_records(existing_mongo_df, processed_df):
+    if (existing_mongo_df is not None and "id" in existing_mongo_df.columns and "date_updated" in existing_mongo_df.columns):
+        existing_keys = existing_mongo_df.select("id", "date_updated").distinct()
+
+        unwritten_members_df = processed_df.join(
+            existing_mongo_df,
+            on=["id", "date_streamed"],
+            how="left_anti"
+        )
+    else:
+        unwritten_members_df = processed_df
+    
+    return unwritten_members_df
+
 def unwritten_thresholds_records(existing_mongo_df, processed_df):
     # Problem: no date_updated from the API. I will have to use records I expect to change. There is an edge case where yesterday_min_fans and current_min_fans are the same as yesterdays (and therefore the same, crazy consistency) while it's another day (different date_streamed). date_streamed because of potential delays, as updated (according to API) isnt really accurate.
     if (existing_mongo_df is not None and "yesterday_min_fans" in existing_mongo_df.columns and "current_min_fans" in existing_mongo_df.columns and "date_streamed" in existing_mongo_df.columns):
@@ -88,12 +103,12 @@ def unwritten_thresholds_records(existing_mongo_df, processed_df):
     
     return unwritten_thresholds_df
 
-def write_to_mongodb(unwritten_clubs_df, db_collection):
+def write_to_mongodb(unwritten_df, db_collection):
     # Not using upsert to keep historical data.
-    if unwritten_clubs_df.rdd.isEmpty():
+    if unwritten_df.rdd.isEmpty():
         print("Dataframes is empty, records are likely already in MongoDB. If so, then daily snapshot has already been performed.")
     else:
-        unwritten_clubs_df.write \
+        unwritten_df.write \
             .format("mongodb") \
             .mode("append") \
             .option("database", DATABASE) \
@@ -142,6 +157,30 @@ def process_club_data(spark):
 
     write_to_mongodb(unwritten_clubs_df, db_collection)
 
+def process_member_data(spark):
+    db_collection = "member_data"
+    existing_mongo_df = read_existing_db(spark, db_collection)
+
+    kafka_df = read_kafka_topic(spark, MEMBERS_TOPIC)
+
+    parsed_df = parse_df(kafka_df, member_schema)
+
+    processed_df = (
+        parsed_df
+        .withColumn("date_updated", date_format(col("last_updated"), "yyyy-MM-dd"))
+
+        .withColumn("total_current_month_fans", aggregate(col("daily_fans"), lit(0).cast("long"), lambda total, daily: total + daily))
+        
+        .withColumn("total_active_days", size(_filter(col("daily_fans"), lambda fans: fans > 0)))
+
+        .withColumn("changed_club", col("previous_circle_id").isNotNull() & (col("previous_circle_id") != col("circle_id")))
+        .dropDuplicates(["id", "date_updated"])
+    )
+
+    unwritten_members_df = unwritten_members_records(existing_mongo_df, processed_df)
+
+    write_to_mongodb(unwritten_members_df, db_collection)
+
 def process_rank_thresholds(spark):
     db_collection = "rank_thresholds_stats"
     existing_mongo_df = read_existing_db(spark, db_collection)
@@ -155,6 +194,8 @@ def process_rank_thresholds(spark):
         parsed_df
         .withColumn("date_streamed", to_date(col("kafka_published_at")))
         .withColumn("rank_range", col("ranking_to") - col("ranking_from"))
+
+        .dropDuplicates(["yesterday_min_fans", "current_min_fans", "date_streamed"])
     )
 
     unwritten_thresholds_df = unwritten_thresholds_records(existing_mongo_df, processed_df)
@@ -166,9 +207,9 @@ def main():
     parser = argparse.ArgumentParser(description="PySpark batch processor, from Kafka to MongoDB ETL")
     parser.add_argument(
         "--target", 
-        choices=["clubs", "thresholds", "all"], 
+        choices=["clubs", "thresholds", "members", "all"],
         required=True, 
-        help="Use flag --target <data>. data being which pipeline producer. Options are clubs, thresholds, and all."
+        help="Use flag --target <data>. data being which pipeline producer. Options are clubs, thresholds, members, and all."
     )
     
     args = parser.parse_args()
@@ -193,8 +234,11 @@ def main():
         process_club_data(spark)
     elif args.target == "thresholds":
         process_rank_thresholds(spark)
+    elif args.target == "members":
+        process_member_data(spark)
     elif args.target == "all":
         process_club_data(spark)
+        process_member_data(spark)
         process_rank_thresholds(spark)
 
     spark.stop()

@@ -1,4 +1,4 @@
-from pyspark.sql.types import StructType, StructField, IntegerType, StringType, LongType
+from pyspark.sql.types import ArrayType, StructType, StructField, IntegerType, StringType, LongType
 
 club_schema = StructType([
     StructField("circle_id", IntegerType(), False), # Not nullable (therefore False), primary key (along with timestamp) for the club data.
@@ -30,4 +30,19 @@ threshold_schema = StructType([
     StructField("last_month_min_fans", LongType(), True),
     StructField("last_month_fans_per_day", LongType(), True),
     StructField("current_vs_last_month_delta", LongType(), True)
+])
+
+member_schema = StructType([
+    StructField("id", IntegerType(), False),
+    StructField("circle_id", IntegerType(), True),
+    StructField("viewer_id", IntegerType(), True),
+    StructField("trainer_name", StringType(), True),
+    StructField("shame_score", IntegerType(), True),
+    StructField("year", IntegerType(), True),
+    StructField("month", IntegerType(), True),
+    StructField("daily_fans", ArrayType(LongType()), True),
+    StructField("last_updated", StringType(), True),
+    StructField("previous_circle_id", IntegerType(), True),
+    StructField("previous_circle_name", StringType(), True),
+    StructField("next_month_start", LongType(), True)
 ])

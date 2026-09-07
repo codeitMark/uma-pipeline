@@ -3,6 +3,7 @@ import json
 import requests
 import time
 import argparse
+import math
 from kafka import KafkaProducer
 
 KAFKASERVER = os.getenv("KAFKA_SERVERS", "localhost:9094")
@@ -70,16 +71,31 @@ def sanitize_json(raw_json, schema):
 def uma_top_clubs():
     TOPIC = "uma_top_clubs"
 
-    #Can be changed dynamically here if you wish.
-    limit = 100
+    #Can be changed dynamically here if you wish. limit is limit per page (which is max 100.)
     sort_by = "monthly_rank"
     sort_dir = "desc"
+    total_clubs = 400
+    if total_clubs <= 100:
+        limit = total_clubs
+        club_url = f"https://uma.moe/api/v4/circles/list?page=0&limit={limit}&sort_by={sort_by}&sort_dir={sort_dir}"
 
-    club_url = f"https://uma.moe/api/v4/circles/list?page=0&limit={limit}&sort_by={sort_by}&sort_dir={sort_dir}"
+        response = requests.get(club_url, headers=HEADERS)
+        response_check(response, "circles", CLUB_SCHEMA, TOPIC)
+    else:
+        limit = 100
+        rest_clubs = total_clubs % 100
+        max_pages = math.floor(total_clubs / 100)
+        for page in range(0, max_pages):
+            club_url = f"https://uma.moe/api/v4/circles/list?page={page}&limit={limit}&sort_by={sort_by}&sort_dir={sort_dir}"
 
-    response = requests.get(club_url, headers=HEADERS)
+            response = requests.get(club_url, headers=HEADERS)
+            response_check(response, "circles", CLUB_SCHEMA, TOPIC)
+            time.sleep(0.6)
+        if rest_clubs != 0:
+            club_url = f"https://uma.moe/api/v4/circles/list?page={rest_clubs}&limit={limit}&sort_by={sort_by}&sort_dir={sort_dir}"
 
-    response_check(response, "circles", CLUB_SCHEMA, TOPIC)
+            response = requests.get(club_url, headers=HEADERS)
+            response_check(response, "circles", CLUB_SCHEMA, TOPIC)
 
 def rank_thresholds():
     TOPIC = "rank_thresholds"

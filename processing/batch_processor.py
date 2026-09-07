@@ -80,7 +80,7 @@ def unwritten_members_records(existing_mongo_df, processed_df):
 
         unwritten_members_df = processed_df.join(
             existing_mongo_df,
-            on=["id", "date_streamed"],
+            on=["id", "date_updated"],
             how="left_anti"
         )
     else:

@@ -149,7 +149,7 @@ def rank_thresholds():
 
     response = requests.get(thresholds_url, headers=HEADERS)
 
-    response_check(response, "thresholds", THRESHOLD_SCHEMA, threshold_topic, sent_count) #response_check returns data_vals now
+    response_check(response, "thresholds", THRESHOLD_SCHEMA, threshold_topic) #response_check returns data_vals now
 
 
 def response_check(response, data_key, SCHEMA, topic):

@@ -44,11 +44,11 @@ def read_kafka_topic(spark, topic):
 #       if latest_ts is not None:
 #           kafka_df = kafka_df.filter(col("timestamp") > latest_ts) # if timestamp is greater than latest timestamp, then we are good to go! (no duplicate of same time)
 
-def parse_and_dedup_df(kafka_df):
+def parse_df(kafka_df, schema):
     parsed_df = (kafka_df
             # Cast the binary payload to string, and parse with club_schema. then add a timestamp for when the data was processed. This will help with tracking and debugging.
         .select(
-            from_json(col("value").cast("string"), club_schema).alias("data"), # value is the actual json body. cast it into string, then parse it with club_schema. data is the parsed json object.
+            from_json(col("value").cast("string"), schema).alias("data"), # value is the actual json body. cast it into string, then parse it with club_schema. data is the parsed json object.
             col("timestamp").alias("kafka_published_at"),
             current_timestamp().alias("spark_processed_at")
         )
@@ -107,7 +107,7 @@ def process_club_data(spark):
 
     kafka_df = read_kafka_topic(spark, CLUBS_TOPIC)
 
-    parsed_df = parse_and_dedup_df(kafka_df)
+    parsed_df = parse_df(kafka_df, club_schema)
 
     processed_df = (
         parsed_df
@@ -148,8 +148,9 @@ def process_rank_thresholds(spark):
 
     kafka_df = read_kafka_topic(spark, THRESHOLDS_TOPIC)
 
-    parsed_df = parse_and_dedup_df(kafka_df)
+    parsed_df = parse_df(kafka_df, threshold_schema)
 
+    # Shouldn't require any null handling tbh
     processed_df = (
         parsed_df
         .withColumn("date_streamed", to_date(col("kafka_published_at")))
@@ -202,3 +203,4 @@ if __name__ == "__main__":
     main()
 
 # Need to automize this somehow to launch daily eventually.
+# Considering fetching data on every member for every club, but that will make api calls take crazy long. According to Gemini it will also introduce slower producer runtimes, as it introduces the "N+1 query problem" Common performance bottleneck. Seems more complicated, so I will do it after I get to visualize data on PowerBI and handle real-time streaming.

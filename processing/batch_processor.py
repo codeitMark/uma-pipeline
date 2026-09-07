@@ -90,12 +90,13 @@ def unwritten_members_records(existing_mongo_df, processed_df):
 
 def unwritten_thresholds_records(existing_mongo_df, processed_df):
     # Problem: no date_updated from the API. I will have to use records I expect to change. There is an edge case where yesterday_min_fans and current_min_fans are the same as yesterdays (and therefore the same, crazy consistency) while it's another day (different date_streamed). date_streamed because of potential delays, as updated (according to API) isnt really accurate.
-    if (existing_mongo_df is not None and "yesterday_min_fans" in existing_mongo_df.columns and "current_min_fans" in existing_mongo_df.columns and "date_streamed" in existing_mongo_df.columns):
-        existing_keys = existing_mongo_df.select("yesterday_min_fans", "current_min_fans", "date_streamed").distinct()
+    # above does not work, I have decided to limit snapshots to daily. It appears that yesterday_min_fans and current_min_fans can be updated throughout the day, which causes a crash due to rank_index being a unique key.
+    if (existing_mongo_df is not None and "rank_index" in existing_mongo_df.columns and "date_streamed" in existing_mongo_df.columns):
+        existing_keys = existing_mongo_df.select("rank_index", "date_streamed").distinct()
 
         unwritten_thresholds_df = processed_df.join(
             existing_mongo_df,
-            on=["yesterday_min_fans", "current_min_fans", "date_streamed"],
+            on=["rank_index", "date_streamed"],
             how="left_anti"
         )
     else:

@@ -56,14 +56,14 @@ MEMBER_SCHEMA = {
     "id": 0,
     "circle_id": 0,
     "viewer_id": 0,
-    "trainer_name": "string",
+    "trainer_name": "none",
     "shame_score": 0,
     "year": 0,
     "month": 0,
     "daily_fans": [0], # is a list, likely 30 days worth. dont be surprised at 0s if its early into the month.
     "last_updated": "1970-01-01T00:00:00Z",
     "previous_circle_id": 0,
-    "previous_circle_name": "string",
+    "previous_circle_name": "none",
     "next_month_start": 0
 }
 
@@ -101,7 +101,7 @@ def uma_top_clubs():
     #Can be changed dynamically here if you wish. limit is limit per page (which is max 100.)
     sort_by = "monthly_rank"
     sort_dir = "desc"
-    total_clubs = 420
+    total_clubs = 1000
     if total_clubs <= 100:
         limit = total_clubs
         club_url = f"https://uma.moe/api/v4/circles/list?page=0&limit={limit}&sort_by={sort_by}&sort_dir={sort_dir}"
@@ -112,9 +112,14 @@ def uma_top_clubs():
         time.sleep(0.6) # sleep between API calls
 
         # Fetch only first 10 clubs members' data per page. This is limited due to the 1-to-N query problem, as I don't actually want to do 100 extra queries. Just going to be sampling some data.
-        for club in clubs[:10]:
-            response_members = fetch_club_members_data(club["circle_id"])
-            response_check(response_members, "members", MEMBER_SCHEMA, member_topic)
+        if total_clubs >= 10:
+            for club in clubs[:10]:
+                response_members = fetch_club_members_data(club["circle_id"])
+                response_check(response_members, "members", MEMBER_SCHEMA, member_topic)
+        elif total_clubs < 10:
+            for club in range(0, total_clubs):
+                response_members = fetch_club_members_data(club["circle_id"])
+                response_check(response_members, "members", MEMBER_SCHEMA, member_topic)
     else:
         limit = 100
         rest_clubs = total_clubs % 100

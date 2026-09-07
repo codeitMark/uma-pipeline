@@ -4,6 +4,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import Row
 from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format
 from pyspark.sql.functions import max as _max
+from pyspark.sql.functions import round as spark_round
 from schemas import club_schema, threshold_schema
     
 MONGO_SERVER = os.getenv("MONGO_URI", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
@@ -11,7 +12,7 @@ KAFKA_BOOTSTRAP = "kafka:9092"
 DATABASE = "uma_db"
 
 CLUBS_TOPIC = "uma_top_clubs"
-RANKS_TOPIC = "rank_thresholds"
+THRESHOLDS_TOPIC = "rank_thresholds"
 
 # fetches the latest kafka_published_at timestamp in MongoDB, to avoid appending duplicates (assuming same timestamp. Otherwise yes to 'duplicate', as historical data.)
 def read_existing_db(spark, db_collection):
@@ -56,7 +57,7 @@ def parse_and_dedup_df(kafka_df):
 
     return parsed_df
 
-def unwritten_clubs(existing_mongo_df, processed_df):
+def unwritten_club_records(existing_mongo_df, processed_df):
     # Performing left anti-join against MongoDB records
     if (existing_mongo_df is not None and "circle_id" in existing_mongo_df.columns and "date_updated" in existing_mongo_df.columns):
         existing_keys = existing_mongo_df.select("circle_id", "date_updated").distinct() # distinct to limit the comparisons the database does, as circle_id and date_updated are meant to be the primary key together.
@@ -72,10 +73,25 @@ def unwritten_clubs(existing_mongo_df, processed_df):
     
     return unwritten_clubs_df
 
+def unwritten_thresholds_records(existing_mongo_df, processed_df):
+    # Problem: no date_updated from the API. I will have to use records I expect to change. There is an edge case where yesterday_min_fans and current_min_fans are the same as yesterdays (and therefore the same, crazy consistency) while it's another day (different date_streamed). date_streamed because of potential delays, as updated (according to API) isnt really accurate.
+    if (existing_mongo_df is not None and "yesterday_min_fans" in existing_mongo_df.columns and "current_min_fans" in existing_mongo_df.columns and "date_streamed" in existing_mongo_df.columns):
+        existing_keys = existing_mongo_df.select("yesterday_min_fans", "current_min_fans", "date_streamed").distinct()
+
+        unwritten_thresholds_df = processed_df.join(
+            existing_mongo_df,
+            on=["yesterday_min_fans", "current_min_fans", "date_streamed"],
+            how="left_anti"
+        )
+    else:
+        unwritten_thresholds_df = processed_df
+    
+    return unwritten_thresholds_df
+
 def write_to_mongodb(unwritten_clubs_df, db_collection):
     # Not using upsert to keep historical data.
     if unwritten_clubs_df.rdd.isEmpty():
-        print("Dataframes is empty, records are likely already in MongoDB.")
+        print("Dataframes is empty, records are likely already in MongoDB. If so, then daily snapshot has already been performed.")
     else:
         unwritten_clubs_df.write \
             .format("mongodb") \
@@ -106,23 +122,44 @@ def process_club_data(spark):
         .withColumn("monthly_point", coalesce(col("monthly_point"), lit(0)))
         .withColumn("last_month_point", coalesce(col("last_month_point"), lit(0)))
 
-        # Transforming some data within the batch (Mostly ones involving static values. Calculations involving dynamic values (e.g. avg_fans_per_member) is done through PowerBI and DAX.)
-        # .withColumn("avg_fans_per_member", when(col("member_count") > 0, col("monthly_point") / col("member_count")).otherwise(0.0))
-        # .withColumn("avg_fans_per_member_last_month", when(col("member_count") > 0, col("last_month_point") / col("member_count")).otherwise(0.0)) requires me to fetch member_count for last month too from another GET call. Better to do in DAX in PowerBI (better for multi-source data, and historical data. using pyspark for single-batch processing.)
+        # Transforming some data within the batch (Mostly ones involving static values. Calculations involving dynamic values (e.g. avg_fans_per_member across multiple clubs) is done through PowerBI and DAX.)
+        .withColumn("monthly_fans_per_member", when(col("member_count") > 0, spark_round(col("monthly_point") / col("member_count"), 2)).otherwise(0.0))
         .withColumn("is_full", col("member_count") >= 30) # Sometimes member_count is above 30, due to counting members who have left the same month.
+        # .withColumn("monthly_fans_per_member_last_month", when(col("member_count") > 0, col("last_month_point") / col("member_count")).otherwise(0.0)) requires me to fetch member_count for last month too from another GET call. Better to do in DAX in PowerBI (better for multi-source data, and historical data. using pyspark for single-batch processing.)
+
         .withColumn("point_difference_last_month", when((col("monthly_point") > 0) & (col("last_month_point") > 0), col("monthly_point") - col("last_month_point")).otherwise(None)) # Using when to handle null values
         .withColumn("rank_difference_last_month", when((col("monthly_rank").isNotNull()) & (col("last_month_rank").isNotNull()), col("monthly_rank") - col("last_month_rank")).otherwise(None))
+
+        # Counting 30+ as 30 members, as max is 30. Transformation for visualization, sort for sortability in PowerBI.
+        .withColumn("member_count_range", when(col("member_count") <= 10, "0-10").when((col("member_count") > 10) & (col("member_count") <= 20), "11-20").when((col("member_count") > 20), "21-30"))
+        .withColumn("member_count_range_sort", when(col("member_count_range") == "0-10", 1).when(col("member_count_range") == "11-20", 2).when(col("member_count_range") == "21-30", 3))
 
         # should help with idempotency and avoiding duplicate data (within the same batch)
         .dropDuplicates(["circle_id", "date_updated"])
     )
 
-    unwritten_clubs_df = unwritten_clubs(existing_mongo_df, processed_df)
+    unwritten_clubs_df = unwritten_club_records(existing_mongo_df, processed_df)
 
     write_to_mongodb(unwritten_clubs_df, db_collection)
 
+def process_rank_thresholds(spark):
+    db_collection = "rank_thresholds_stats"
+    existing_mongo_df = read_existing_db(spark, db_collection)
 
-#def process_rank_thresholds(spark):
+    kafka_df = read_kafka_topic(spark, THRESHOLDS_TOPIC)
+
+    parsed_df = parse_and_dedup_df(kafka_df)
+
+    processed_df = (
+        parsed_df
+        .withColumn("date_streamed", to_date(col("kafka_published_at")))
+        .withColumn("rank_range", col("ranking_to") - col("ranking_from"))
+    )
+
+    unwritten_thresholds_df = unwritten_thresholds_records(existing_mongo_df, processed_df)
+    
+    write_to_mongodb(unwritten_thresholds_df, db_collection)
+
 
 def main():
     parser = argparse.ArgumentParser(description="PySpark batch processor, from Kafka to MongoDB ETL")

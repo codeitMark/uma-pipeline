@@ -2,8 +2,8 @@ import os
 import argparse
 from pyspark.sql import SparkSession
 from pyspark.sql import Row
-from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format, explode, size, element_at, reverse
-from pyspark.sql.functions import max as _max, round as spark_round, filter as _filter
+from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format, explode, size, element_at, reverse, transform
+from pyspark.sql.functions import max as _max, round as spark_round, filter as _filter, abs as _abs
 from schemas import club_schema, threshold_schema, member_schema
     
 MONGO_SERVER = os.getenv("MONGO_URI", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
@@ -170,9 +170,19 @@ def process_member_data(spark):
         parsed_df
         .withColumn("date_updated", date_format(col("last_updated"), "yyyy-MM-dd"))
 
-        .withColumn("daily_fan_gain", 
+        # Cleaning daily_fans, cleaning any negative values (which appear for some reason) to positive
+        .withColumn("daily_fans", transform(col("daily_fans"), lambda x: _abs(x)))
+
+        .withColumn("todays_fan_gain", 
             coalesce(
                 element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 1) - element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 2), lit(0).cast("long")
+            )
+        )
+
+        # current month's fain gain. Could prob use -1 instead of reversing? Need to handle negative values with abs(). No idea why the API returns negative numbers when "daily_fans" should always remain positive. You literally can't lose fans in this game (Umamusume)
+        .withColumn("current_months_fan_gain", 
+            coalesce(
+                element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 1) - element_at(_filter(col("daily_fans"), lambda x: x != 0), 1), lit(0).cast("long")
             )
         )
 

@@ -60,7 +60,7 @@ MEMBER_SCHEMA = {
     "shame_score": 0,
     "year": 0,
     "month": 0,
-    "daily_fans": [0], # is a list, likely 30 days worth. dont be surprised at 0s if its early into the month.
+    "daily_fans": [0], # is a list, likely 30 days worth. dont be surprised at 0s if its early into the month. daily fans is not daily fan gain!!!! This will not be 0 unless its a new user.
     "last_updated": "1970-01-01T00:00:00Z",
     "previous_circle_id": 0,
     "previous_circle_name": "none",

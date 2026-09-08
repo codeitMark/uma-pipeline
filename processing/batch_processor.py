@@ -2,7 +2,7 @@ import os
 import argparse
 from pyspark.sql import SparkSession
 from pyspark.sql import Row
-from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format, explode, size, element_at, reverse, array_filter
+from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format, explode, size, element_at, reverse
 from pyspark.sql.functions import max as _max, round as spark_round, filter as _filter
 from schemas import club_schema, threshold_schema, member_schema
     
@@ -172,7 +172,7 @@ def process_member_data(spark):
 
         .withColumn("daily_fan_gain", 
             coalesce(
-                element_at(reverse(array_filter(col("daily_fans"), lambda x: x != 0)), 1) - element_at(reverse(array_filter(col("daily_fans"), lambda x: x != 0)), 2), lit(0).cast("long")
+                element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 1) - element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 2), lit(0).cast("long")
             )
         )
 
@@ -181,15 +181,13 @@ def process_member_data(spark):
             coalesce( # if "daily_fans" is not null then use that, if it is use 0 (lit(0).cast("long"))
                 element_at( # element_at 1 is [0]
                     reverse( # flip array so [0] is the latest day
-                        array_filter(col("daily_fans"), lambda x: x != 0) # remove all 0s
+                        _filter(col("daily_fans"), lambda x: x != 0) # remove all 0s
                     ),
                     1
                 ),
                 lit(0).cast("long")
             )
         )
-
-        .withColumn("daily_fan_gain", "daily_fans[-1] - -2")
 
         .withColumn("total_active_days", size(_filter(col("daily_fans"), lambda fans: fans > 0)))
 

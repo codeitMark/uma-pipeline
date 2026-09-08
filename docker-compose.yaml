@@ -8,7 +8,7 @@ services:
     tty: true # Keeps container alive on standby     
     stdin_open: true # Lets us use the container terminal interactively
     environment:
-      - MONGO_URI=${MONGO_SERVER}
+      - MONGO_URI=${MONGO_SERVER} # Might not be needed because this container already takes env variables from .env...
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9094
       - SPARK_MASTER_URL=spark://spark-master:7077 
     depends_on:

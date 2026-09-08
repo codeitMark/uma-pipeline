@@ -2,8 +2,8 @@ import os
 import argparse
 from pyspark.sql import SparkSession
 from pyspark.sql import Row
-from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format, explode, size, aggregate
-from pyspark.sql.functions import max as _max, round as spark_round, filter as _filter
+from pyspark.sql.functions import col, current_timestamp, from_json, coalesce, lit, when, to_date, date_format, explode, size, element_at, reverse, transform
+from pyspark.sql.functions import max as _max, round as spark_round, filter as _filter, abs as _abs
 from schemas import club_schema, threshold_schema, member_schema
     
 MONGO_SERVER = os.getenv("MONGO_URI", "mongodb://mongodb:27017/uma_db.uma_historical_club_stats")
@@ -90,12 +90,13 @@ def unwritten_members_records(existing_mongo_df, processed_df):
 
 def unwritten_thresholds_records(existing_mongo_df, processed_df):
     # Problem: no date_updated from the API. I will have to use records I expect to change. There is an edge case where yesterday_min_fans and current_min_fans are the same as yesterdays (and therefore the same, crazy consistency) while it's another day (different date_streamed). date_streamed because of potential delays, as updated (according to API) isnt really accurate.
-    if (existing_mongo_df is not None and "yesterday_min_fans" in existing_mongo_df.columns and "current_min_fans" in existing_mongo_df.columns and "date_streamed" in existing_mongo_df.columns):
-        existing_keys = existing_mongo_df.select("yesterday_min_fans", "current_min_fans", "date_streamed").distinct()
+    # above does not work, I have decided to limit snapshots to daily. It appears that yesterday_min_fans and current_min_fans can be updated throughout the day, which causes a crash due to rank_index being a unique key.
+    if (existing_mongo_df is not None and "rank_index" in existing_mongo_df.columns and "date_streamed" in existing_mongo_df.columns):
+        existing_keys = existing_mongo_df.select("rank_index", "date_streamed").distinct()
 
         unwritten_thresholds_df = processed_df.join(
             existing_mongo_df,
-            on=["yesterday_min_fans", "current_min_fans", "date_streamed"],
+            on=["rank_index", "date_streamed"],
             how="left_anti"
         )
     else:
@@ -169,8 +170,35 @@ def process_member_data(spark):
         parsed_df
         .withColumn("date_updated", date_format(col("last_updated"), "yyyy-MM-dd"))
 
-        .withColumn("total_current_month_fans", aggregate(col("daily_fans"), lit(0).cast("long"), lambda total, daily: total + daily))
-        
+        # Cleaning daily_fans, cleaning any negative values (which appear for some reason) to positive
+        .withColumn("daily_fans", transform(col("daily_fans"), lambda x: _abs(x)))
+
+        .withColumn("todays_fan_gain", 
+            coalesce(
+                element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 1) - element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 2), lit(0).cast("long")
+            )
+        )
+
+        # current month's fain gain. Could prob use -1 instead of reversing? Need to handle negative values with abs(). No idea why the API returns negative numbers when "daily_fans" should always remain positive. You literally can't lose fans in this game (Umamusume)
+        .withColumn("current_months_fan_gain", 
+            coalesce(
+                element_at(reverse(_filter(col("daily_fans"), lambda x: x != 0)), 1) - element_at(_filter(col("daily_fans"), lambda x: x != 0), 1), lit(0).cast("long")
+            )
+        )
+
+        # Their current total fans
+        .withColumn("current_total_fans", 
+            coalesce( # if "daily_fans" is not null then use that, if it is use 0 (lit(0).cast("long"))
+                element_at( # element_at 1 is [0]
+                    reverse( # flip array so [0] is the latest day
+                        _filter(col("daily_fans"), lambda x: x != 0) # remove all 0s
+                    ),
+                    1
+                ),
+                lit(0).cast("long")
+            )
+        )
+
         .withColumn("total_active_days", size(_filter(col("daily_fans"), lambda fans: fans > 0)))
 
         .withColumn("changed_club", col("previous_circle_id").isNotNull() & (col("previous_circle_id") != col("circle_id")))

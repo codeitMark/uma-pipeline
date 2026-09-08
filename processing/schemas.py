@@ -35,7 +35,7 @@ threshold_schema = StructType([
 member_schema = StructType([
     StructField("id", IntegerType(), False),
     StructField("circle_id", IntegerType(), True),
-    StructField("viewer_id", IntegerType(), True),
+    StructField("viewer_id", LongType(), True),
     StructField("trainer_name", StringType(), True),
     StructField("shame_score", IntegerType(), True),
     StructField("year", IntegerType(), True),

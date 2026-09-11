@@ -243,8 +243,10 @@ def main():
     args = parser.parse_args()
 
     # Specifies the MongoDB Spark connector version below.
+    # Okay these were likely being ignored because I ran this through spark-master. try through python, if it works it works! do it without any flags and only with batch_processor.py.
     spark = (
         SparkSession.builder # no .master, it is specified when running the program with the --master flag.
+        .master("spark://spark-master:7077")
         .appName("UmaMoeBatchProcessor")
         .config(
             "spark.jars.packages", 

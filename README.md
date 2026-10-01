@@ -12,9 +12,11 @@ A personal project related to uma, which I will expand on. Data from uma.moe API
 
 Will expand on README.md eventually with instructions on how to run (e.g. docker-compose up -d)
 
-Note: I do consider chess-pipeline (will add link here) to end up somewhat better than this repo, but it was rushed, as well as with great help from AI due to the small timeline of 3 weeks (for someone who hasn't used these technologies at all!).
+I do consider chess-pipeline to end up somewhat better than this repo, but it was rushed, as well as with great help from AI due to the small timeline of 3 weeks (for someone who hasn't used these technologies at all!).
 
-chess-pipeline was also a group project, I mainly worked with setting up the Dockerfile and docker-compose.yaml, transforming streaming data from Kafka to DataFrames in PySpark there, and writing the README and project report. I also did contribute to other sections like ingestion, visualization (through PowerBI, making star schema). This reflects my current capabilities more (as of 2026, as a student). 
+chess-pipeline was also a group project related to a University subject, I mainly worked with setting up the Dockerfile and docker-compose.yaml, ingesting data, transforming streaming data from Kafka to DataFrames in PySpark there, loading the data into MongoDB, and writing the project report. This reflects my current capabilities more (as of 2026, as a student).
+
+Note: chess-pipeline is currently private, and can be shared upon request.
 
 Also don't be surprised if some of the code ends up being worse here than in chess-pipeline, as I started this before chess-pipeline, as an introduction to connecting these technologies together.
 

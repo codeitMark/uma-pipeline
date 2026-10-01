@@ -147,6 +147,9 @@ def uma_top_clubs():
                 response_members = fetch_club_members_data(club["circle_id"])
                 response_check(response_members, "members", MEMBER_SCHEMA, member_topic)
 
+        producer.flush()
+        producer.close()
+
 def rank_thresholds():
     threshold_topic = "rank_thresholds"
 
@@ -155,6 +158,9 @@ def rank_thresholds():
     response = requests.get(thresholds_url, headers=HEADERS)
 
     response_check(response, "thresholds", THRESHOLD_SCHEMA, threshold_topic) #response_check returns data_vals now
+
+    producer.flush()
+    producer.close()
 
 
 def response_check(response, data_key, SCHEMA, topic):
@@ -177,7 +183,6 @@ def response_check(response, data_key, SCHEMA, topic):
             if sent_count % 100 == 0:
                 print(f"Sent {sent_count} records to Kafka.")
 
-        producer.flush()
         print("Data sent to Kafka successfully.")
         return data_vals
 
